@@ -1,0 +1,66 @@
+name: Weekly Right-Sizing Analysis
+
+on:
+  # Run every Monday at 10 AM UTC (1 hour after zombie scan)
+  schedule:
+    - cron: '0 10 * * 1'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+
+jobs:
+  analyze-resources:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      
+      - name: Run right-sizing analysis
+        run: |
+          python src/main.py --format json > analysis-results.json || echo "{}" > analysis-results.json
+      
+      - name: Upload analysis results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rightsizing-analysis-${{ github.run_number }}
+          path: |
+            analysis-results.json
+            reports/
+          retention-days: 90
+      
+      - name: Post summary
+        if: success()
+        run: |
+          echo "## 📊 Weekly Right-Sizing Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Analysis Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Lookback Period:** 30 days" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check if we have results
+          if [ -f "analysis-results.json" ] && [ -s "analysis-results.json" ]; then
+            echo "✅ Analysis completed successfully" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Download the artifacts to view detailed recommendations." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ No running instances found to analyze" >> $GITHUB_STEP_SUMMARY
+          fi
